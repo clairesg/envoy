@@ -4,7 +4,9 @@
 #include <unistd.h>
 
 #ifdef __has_include
-#if __has_include(<experimental/filesystem>)
+#if __has_include(<filesystem>)
+#include <filesystem>
+#elif __has_include(<experimental/filesystem>)
 #include <experimental/filesystem>
 #endif
 #endif
@@ -38,7 +40,11 @@ std::string makeTempDir(char* name_template) {
   char* dirname = ::_mktemp(name_template);
   RELEASE_ASSERT(dirname != nullptr, fmt::format("failed to create tempdir from template: {} {}",
                                                  name_template, strerror(errno)));
+#ifdef __cpp_lib_filesystem
+  std::filesystem::create_directories(dirname);
+#elifdef __cpp_experimental_lib_filesystem
   std::experimental::filesystem::create_directories(dirname);
+#endif
 #else
   char* dirname = ::mkdtemp(name_template);
   RELEASE_ASSERT(dirname != nullptr, fmt::format("failed to create tempdir from template: {} {}",
@@ -77,9 +83,11 @@ char** argv_;
 } // namespace
 
 void TestEnvironment::createPath(const std::string& path) {
-#ifdef __cpp_lib_experimental_filesystem
+#ifdef __cpp_lib_filesystem
   // We don't want to rely on mkdir etc. if we can avoid it, since it might not
   // exist in some environments such as ClusterFuzz.
+  std::filesystem::create_directories(std::filesystem::path(path));
+#elifdef __cpp_lib_experimental_filesystem
   std::experimental::filesystem::create_directories(std::experimental::filesystem::path(path));
 #else
   // No support on this system for std::experimental::filesystem.
@@ -88,11 +96,14 @@ void TestEnvironment::createPath(const std::string& path) {
 }
 
 void TestEnvironment::createParentPath(const std::string& path) {
-#ifdef __cpp_lib_experimental_filesystem
+#ifdef __cpp_lib_filesystem
   // We don't want to rely on mkdir etc. if we can avoid it, since it might not
   // exist in some environments such as ClusterFuzz.
+  std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+#elifdef __cpp_lib_experimental_filesystem
   std::experimental::filesystem::create_directories(
       std::experimental::filesystem::path(path).parent_path());
+
 #else
   // No support on this system for std::experimental::filesystem.
   RELEASE_ASSERT(::system(("mkdir -p $(dirname " + path + ")").c_str()) == 0, "");
@@ -101,9 +112,14 @@ void TestEnvironment::createParentPath(const std::string& path) {
 
 void TestEnvironment::removePath(const std::string& path) {
   RELEASE_ASSERT(absl::StartsWith(path, TestEnvironment::temporaryDirectory()), "");
-#ifdef __cpp_lib_experimental_filesystem
+#ifdef __cpp_lib_filesystem
   // We don't want to rely on rm etc. if we can avoid it, since it might not
   // exist in some environments such as ClusterFuzz.
+  if (!std::filesystem::exists(path)) {
+    return;
+  }
+  std::filesystem::remove_all(std::filesystem::path(path));
+#elifdef __cpp_lib_experimental_filesystem
   if (!std::experimental::filesystem::exists(path)) {
     return;
   }
