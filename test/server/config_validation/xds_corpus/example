@@ -1,0 +1,8 @@
+actions {
+  add_listener {
+    name = "listener_0"
+  }
+  add_route {
+    name = "route_0"
+  }
+}
