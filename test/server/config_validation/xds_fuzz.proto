@@ -23,7 +23,6 @@ message RemoveRoute {
   string name = 1;
 }
 
-
 message Action {
   oneof action_selector {
     AddListener add_listener = 1;
