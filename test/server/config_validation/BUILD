@@ -108,6 +108,8 @@ envoy_cc_fuzz_test(
     srcs = ["xds_fuzz_test.cc"],
     corpus = "//test/server/config_validation:xds_corpus",
     deps = [
+        "@envoy_api//envoy/admin/v2alpha:config_dump_cc",
+        "//test/integration:http_integration_lib",
         ":xds_fuzz_proto_cc",
         "//test/integration:integration_lib",
         "//include/envoy/event:dispatcher_interface",

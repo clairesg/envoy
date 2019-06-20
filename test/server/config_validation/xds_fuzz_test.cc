@@ -1,8 +1,9 @@
 #include <fstream>
-
+#include "envoy/admin/v2alpha/config_dump.pb.h"
 #include "test/fuzz/fuzz_runner.h"
 #include "test/integration/integration.h"
 #include "test/integration/utility.h"
+#include "test/integration/http_integration.h"
 #include "test/test_common/network_utility.h"
 #include "test/server/config_validation/xds_fuzz.pb.h"
 #include "test/integration/fake_upstream.h"
@@ -37,15 +38,39 @@ admin:
       port_value: 0
 )EOF";
 
-class XdsFuzzConfig : BaseIntegrationTest {
+class XdsFuzzTest : public HttpIntegrationTest {
 public:
-  XdsFuzzConfig()
-      : BaseIntegrationTest(
-            [](int) {
-              return Network::Utility::parseInternetAddress(
-                  Network::Test::getAnyAddressString(Network::Address::IpVersion::v4), 0);
-            },
-            Envoy::Network::Address::IpVersion::v4, config) {}
+  XdsFuzzTest(Network::Address::IpVersion version)
+      : HttpIntegrationTest(Http::CodecClient::Type::HTTP1, version, config) {
+    use_lds_ = false;
+    create_xds_upstream_ = true;
+    tls_xds_upstream_ = false;
+  }
+
+  void initialize() override {
+    // Add ADS config with gRPC.
+    // QUESTION: Can I add just add this to the config string?
+    config_helper_.addConfigModifier([this](envoy::config::bootstrap::v2::Bootstrap& bootstrap) {
+      auto* ads_config = bootstrap.mutable_dynamic_resources()->mutable_ads_config();
+      auto* grpc_service = ads_config->add_grpc_services();
+      grpc_service->mutable_envoy_grpc()->set_cluster_name("ads_cluster");
+      auto* ads_cluster = bootstrap.mutable_static_resources()->add_clusters();
+      ads_cluster->MergeFrom(bootstrap.static_resources().clusters()[0]);
+      ads_cluster->set_name("ads_cluster");
+    });
+
+    // createUpstream, createXdsUpstream, createEnvoy, and set initialized_ = true
+    HttpIntegrationTest::initialize();
+
+    setUpstreamProtocol(FakeHttpConnection::Type::HTTP1);
+    if (xds_stream_ == nullptr) {
+      createXdsConnection();
+      AssertionResult result = xds_connection_->waitForNewStream(*dispatcher_, xds_stream_);
+      RELEASE_ASSERT(result, result.message());
+      xds_stream_->startGrpcStream();
+    }
+  }
+
 
   envoy::api::v2::Listener buildListener(const std::string& name, const std::string& route_config,
                                          const std::string& stat_prefix = "ads_test") {
@@ -61,7 +86,7 @@ public:
         - name: envoy.http_connection_manager
           config:
             stat_prefix: {}
-            codec_type: HTTP2
+            codec_type: HTTP1
             rds:
               route_config_name: {}
               config_source: {{ ads: {{}} }}
@@ -82,7 +107,7 @@ public:
                                                                        name));
   }
 
-    envoy::api::v2::RouteConfiguration buildRouteConfig(const std::string& name,
+  envoy::api::v2::RouteConfiguration buildRouteConfig(const std::string& name,
                                                       const std::string& cluster) {
     return TestUtility::parseYaml<envoy::api::v2::RouteConfiguration>(fmt::format(R"EOF(
       name: {}
@@ -96,70 +121,67 @@ public:
                                                                                   name, cluster));
   }
 
-  void initialize() override {
 
-      config_helper_.addConfigModifier(
-        [this](envoy::config::bootstrap::v2::Bootstrap& bootstrap) {
-          auto* ads_config = bootstrap.mutable_dynamic_resources()->mutable_ads_config();
-          auto* grpc_service = ads_config->add_grpc_services();
-          grpc_service->mutable_envoy_grpc()->set_cluster_name("ads_cluster");
-          auto* ads_cluster = bootstrap.mutable_static_resources()->add_clusters();
-          ads_cluster->MergeFrom(bootstrap.static_resources().clusters()[0]);
-          ads_cluster->set_name("ads_cluster");
-          //          auto* context = ads_cluster->mutable_tls_context();
-          //auto* validation_context =
-          //    context->mutable_common_tls_context()->mutable_validation_context();
-          //validation_context->mutable_trusted_ca()->set_filename(
-          //    TestEnvironment::runfilesPath("test/config/integration/certs/upstreamcacert.pem"));
-          //validation_context->add_verify_subject_alt_name("foo.lyft.com");
-        });
-    setUpstreamProtocol(FakeHttpConnection::Type::HTTP2);
+  void removeListener();
 
-    BaseIntegrationTest::initialize();
+  void updateListener();
 
-    if (xds_stream_ == nullptr) {
-      createXdsConnection();
-      AssertionResult result = xds_connection_->waitForNewStream(*dispatcher_, xds_stream_);
-      RELEASE_ASSERT(result, result.message());
-      xds_stream_->startGrpcStream();
-    }
-  }
-
-  void sendListenerDiscoveryResponse() {
+  void addListener(const test::server::config_validation::AddListener& add_listener) {
+    // Parse action info into a DiscoveryResponse.
     sendDiscoveryResponse<envoy::api::v2::Listener>(
-        Config::TypeUrl::get().Listener, {buildListener("listener_0", "route_config_0")},
-        {buildListener("listener_0", "route_config_0")}, {}, "1");
+        Config::TypeUrl::get().Listener,
+        {buildListener(add_listener.name(), add_listener.route_config())},
+        {buildListener(add_listener.name(), add_listener.route_config())}, {},
+        add_listener.version());
   }
 
-  void sendClusterDiscoveryResponse() {
-    sendDiscoveryResponse<envoy::api::v2::Cluster>(Config::TypeUrl::get().Cluster,
-                                                   {buildCluster("cluster_0")},
-                                                   {buildCluster("cluster_0")}, {}, "1");
+  void replay(const test::server::config_validation::XdsTestCase& input) {
+    // QUESTION: sanity check -- doesn't this init after each test case input?
+    // Maybe the upstream connection is only initialized if it's not set.. check...
+    // Go through actions.
+    initialize();
+
+    for (const auto& action : input.actions()) {
+      switch (action.action_selector_case()) {
+      case test::server::config_validation::Action::kAddListener: {
+        addListener(action.add_listener());
+      }
+      case test::server::config_validation::Action::kAddRoute: {
+      }
+      default:
+        break;
+      }
+    }
+    // Disconnect and close.
+    close();
   }
+
+  void close() {
+    cleanUpXdsConnection();
+    test_server_.reset();
+    fake_upstreams_.clear();
+  }
+
+  const std::chrono::milliseconds max_wait_ms_{10};
+
+  // Just for test
+  void LogConfigDump() {
+    auto message_ptr =
+        test_server_->server().admin().getConfigTracker().getCallbacksMap().at("listeners")();
+    ENVOY_LOG_MISC(debug, "CONFIG DUMP: {}",
+                   dynamic_cast<const envoy::admin::v2alpha::ListenersConfigDump&>(*message_ptr)
+                       .DebugString());
+  }
+
+
 };
 
 DEFINE_PROTO_FUZZER(const test::server::config_validation::XdsTestCase& input) {
+  RELEASE_ASSERT(!TestEnvironment::getIpVersionsForTest().empty(), "");
+  const auto ip_version = TestEnvironment::getIpVersionsForTest()[0];
+  XdsFuzzTest test(ip_version);
 
-  XdsFuzzConfig test;
-  // Start ADS over gRPC
-  test.initialize();
-       ENVOY_LOG_MISC(trace, "aa {}", "");
-
-  test.sendClusterDiscoveryResponse();
-  ENVOY_LOG_MISC(trace, "Sent response: {}", "");
-  // Go through actions
-  for (const auto& action : input.actions()) {
-    switch (action.action_selector_case()) {
-      case test::server::config_validation::Action::kAddListener: {
-    }
-      case test::server::config_validation::Action::kAddRoute: {
-    }
-    default:
-      break;
-    }
-  }
-
-  // Verify listeners
+  test.replay(input);
 }
 
 }  // namespace Server

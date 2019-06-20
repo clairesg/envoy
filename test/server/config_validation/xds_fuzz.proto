@@ -5,9 +5,21 @@ package test.server.config_validation;
 // Structured input for xds_fuzz_test.
 message AddListener {
   string name = 1;
+  string route_config = 2;
+  string version = 3;
 }
 
 message AddRoute {
+  string name = 1;
+  string cluster = 2;
+  string version = 3;
+}
+
+message RemoveListener {
+  string name = 1;
+}
+
+message RemoveRoute {
   string name = 1;
 }
 
