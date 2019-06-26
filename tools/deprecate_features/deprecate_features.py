@@ -5,6 +5,11 @@ import re
 import subprocess
 import fileinput
 
+try:
+  input = raw_input  # Python 2
+except NameError:
+  pass  # Python 3
+
 
 # Sorts out the list of deprecated proto fields which should be disallowed and returns a tuple of
 # email and code changes.
@@ -89,7 +94,7 @@ email = ('The Envoy maintainer team is cutting the next Envoy release.  In the n
 print('\n\nSuggested envoy-announce email: \n')
 print(email)
 
-if not raw_input('Apply relevant runtime changes? [yN] ').strip().lower() in ('y', 'yes'):
+if not input('Apply relevant runtime changes? [yN] ').strip().lower() in ('y', 'yes'):
   exit(1)
 
 for line in fileinput.FileInput('source/common/runtime/runtime_features.cc', inplace=1):
