@@ -77,8 +77,8 @@ BAZEL_BUILD_OPTIONS="${BAZEL_BUILD_OPTIONS} -c dbg --copt=-DNDEBUG"
 # stats. The #foo# pattern is because gcov produces files such as
 # bazel-out#local-fastbuild#bin#external#spdlog_git#_virtual_includes#spdlog#spdlog#details#pattern_formatter_impl.h.gcov.
 # To find these while modifying this regex, perform a gcov run with -k set.
-[[ -z "${GCOVR_EXCLUDE_REGEX}" ]] && GCOVR_EXCLUDE_REGEX=".*pb.h.gcov|.*#k8-dbg#bin#.*|test#.*|external#.*|.*#external#.*|.*#prebuilt#.*|.*#config_validation#.*|.*#chromium_url#.*"
-[[ -z "${GCOVR_EXCLUDE_DIR}" ]] && GCOVR_EXCLUDE_DIR=".*/external/.*"
+[[ -z "${GCOVR_EXCLUDE_REGEX}" ]] && GCOVR_EXCLUDE_REGEX=".*pb.h.gcov|test#.*|envoy-api|.*#prebuilt#.*|.*#config_validation#.*|.*#chromium_url#.*"
+[[ -z "${GCOVR_EXCLUDE_DIR}" ]] && GCOVR_EXCLUDE_DIR=""
 
 COVERAGE_DIR="${SRCDIR}"/generated/coverage
 mkdir -p "${COVERAGE_DIR}"
@@ -123,5 +123,5 @@ then
   else
       echo Code coverage ${COVERAGE_VALUE} is good and higher than limit of ${COVERAGE_THRESHOLD}
   fi
-  echo "HTML coverage report is in ${COVERAGE_DIR}/coverage.html"
 fi
+echo "HTML coverage report is in ${COVERAGE_DIR}/coverage.html"
