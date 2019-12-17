@@ -30,8 +30,7 @@ DEFINE_PROTO_FUZZER(const test::common::http::HeaderMapImplFuzzTestCase& input) 
     switch (action.action_selector_case()) {
     case test::common::http::Action::kAddReference: {
       const auto& add_reference = action.add_reference();
-      lower_case_strings.emplace_back(
-          std::make_unique<Http::LowerCaseString>(add_reference.key()));
+      lower_case_strings.emplace_back(std::make_unique<Http::LowerCaseString>(add_reference.key()));
       strings.emplace_back(
           std::make_unique<std::string>(replaceInvalidCharacters(add_reference.value())));
       header_map->addReference(*lower_case_strings.back(), *strings.back());
@@ -39,8 +38,8 @@ DEFINE_PROTO_FUZZER(const test::common::http::HeaderMapImplFuzzTestCase& input) 
     }
     case test::common::http::Action::kAddReferenceKey: {
       const auto& add_reference_key = action.add_reference_key();
-      lower_case_strings.emplace_back(std::make_unique<Http::LowerCaseString>(
-          add_reference_key.key()));
+      lower_case_strings.emplace_back(
+          std::make_unique<Http::LowerCaseString>(add_reference_key.key()));
       switch (add_reference_key.value_selector_case()) {
       case test::common::http::AddReferenceKey::kStringValue:
         header_map->addReferenceKey(*lower_case_strings.back(),
@@ -71,8 +70,7 @@ DEFINE_PROTO_FUZZER(const test::common::http::HeaderMapImplFuzzTestCase& input) 
     }
     case test::common::http::Action::kSetReference: {
       const auto& set_reference = action.set_reference();
-      lower_case_strings.emplace_back(
-          std::make_unique<Http::LowerCaseString>(set_reference.key()));
+      lower_case_strings.emplace_back(std::make_unique<Http::LowerCaseString>(set_reference.key()));
       strings.emplace_back(
           std::make_unique<std::string>(replaceInvalidCharacters(set_reference.value())));
       header_map->setReference(*lower_case_strings.back(), *strings.back());
@@ -80,16 +78,15 @@ DEFINE_PROTO_FUZZER(const test::common::http::HeaderMapImplFuzzTestCase& input) 
     }
     case test::common::http::Action::kSetReferenceKey: {
       const auto& set_reference_key = action.set_reference_key();
-      lower_case_strings.emplace_back(std::make_unique<Http::LowerCaseString>(
-          set_reference_key.key()));
+      lower_case_strings.emplace_back(
+          std::make_unique<Http::LowerCaseString>(set_reference_key.key()));
       header_map->setReferenceKey(*lower_case_strings.back(),
                                   replaceInvalidCharacters(set_reference_key.value()));
       break;
     }
     case test::common::http::Action::kGet: {
       const auto& get = action.get();
-      const auto* header_entry =
-          header_map->get(Http::LowerCaseString(get.key()));
+      const auto* header_entry = header_map->get(Http::LowerCaseString(get.key()));
       if (header_entry != nullptr) {
         // Do some read-only stuff.
         (void)strlen(std::string(header_entry->key().getStringView()).c_str());
@@ -101,8 +98,8 @@ DEFINE_PROTO_FUZZER(const test::common::http::HeaderMapImplFuzzTestCase& input) 
     }
     case test::common::http::Action::kMutateAndMove: {
       const auto& mutate_and_move = action.mutate_and_move();
-      lower_case_strings.emplace_back(std::make_unique<Http::LowerCaseString>(
-          mutate_and_move.key()));
+      lower_case_strings.emplace_back(
+          std::make_unique<Http::LowerCaseString>(mutate_and_move.key()));
       Http::HeaderString header_field(*lower_case_strings.back());
       Http::HeaderString header_value;
       // Do some mutation or parameterized action.
@@ -134,8 +131,7 @@ DEFINE_PROTO_FUZZER(const test::common::http::HeaderMapImplFuzzTestCase& input) 
     }
     case test::common::http::Action::kAppend: {
       const auto& append = action.append();
-      lower_case_strings.emplace_back(
-          std::make_unique<Http::LowerCaseString>(append.key()));
+      lower_case_strings.emplace_back(std::make_unique<Http::LowerCaseString>(append.key()));
       strings.emplace_back(std::make_unique<std::string>(replaceInvalidCharacters(append.value())));
       header_map->appendCopy(*lower_case_strings.back(), *strings.back());
       break;
@@ -147,8 +143,7 @@ DEFINE_PROTO_FUZZER(const test::common::http::HeaderMapImplFuzzTestCase& input) 
     }
     case test::common::http::Action::kLookup: {
       const Http::HeaderEntry* header_entry;
-      header_map->lookup(Http::LowerCaseString(action.lookup()),
-                         &header_entry);
+      header_map->lookup(Http::LowerCaseString(action.lookup()), &header_entry);
       break;
     }
     case test::common::http::Action::kRemove: {
@@ -156,8 +151,7 @@ DEFINE_PROTO_FUZZER(const test::common::http::HeaderMapImplFuzzTestCase& input) 
       break;
     }
     case test::common::http::Action::kRemovePrefix: {
-      header_map->removePrefix(
-          Http::LowerCaseString(action.remove_prefix()));
+      header_map->removePrefix(Http::LowerCaseString(action.remove_prefix()));
       break;
     }
     case test::common::http::Action::kGetAndMutate: {
