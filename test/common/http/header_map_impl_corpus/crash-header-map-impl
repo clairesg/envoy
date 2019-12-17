@@ -1,0 +1,8 @@
+actions {
+}
+actions {
+  mutate_and_move {
+    key: "h"
+    set_integer: 0
+  }
+}
