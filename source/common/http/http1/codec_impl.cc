@@ -377,8 +377,7 @@ http_parser_settings ConnectionImpl::settings_{
     },
     nullptr, // on_status
     [](http_parser* parser, const char* at, size_t length) -> int {
-      static_cast<ConnectionImpl*>(parser->data)->onHeaderField(at, length);
-      return 0;
+      return static_cast<ConnectionImpl*>(parser->data)->onHeaderField(at, length);
     },
     [](http_parser* parser, const char* at, size_t length) -> int {
       static_cast<ConnectionImpl*>(parser->data)->onHeaderValue(at, length);
@@ -392,8 +391,7 @@ http_parser_settings ConnectionImpl::settings_{
       return 0;
     },
     [](http_parser* parser) -> int {
-      static_cast<ConnectionImpl*>(parser->data)->onMessageCompleteBase();
-      return 0;
+      return static_cast<ConnectionImpl*>(parser->data)->onMessageCompleteBase();
     },
     nullptr, // on_chunk_header
     nullptr  // on_chunk_complete
@@ -419,7 +417,7 @@ ConnectionImpl::ConnectionImpl(Network::Connection& connection, Stats::Scope& st
   parser_.data = this;
 }
 
-void ConnectionImpl::completeLastHeader() {
+int ConnectionImpl::completeLastHeader() {
   ENVOY_CONN_LOG(trace, "completed header: key={} value={}", connection_,
                  current_header_field_.getStringView(), current_header_value_.getStringView());
 
@@ -434,14 +432,16 @@ void ConnectionImpl::completeLastHeader() {
   if (headers_or_trailers.size() > max_headers_count_) {
     error_code_ = Http::Code::RequestHeaderFieldsTooLarge;
     sendProtocolError(Http1ResponseCodeDetails::get().TooManyHeaders);
-    const absl::string_view header_type =
-        processing_trailers_ ? Http1HeaderTypes::get().Trailers : Http1HeaderTypes::get().Headers;
-    throw CodecProtocolException(absl::StrCat(header_type, " size exceeds limit"));
+    // const absl::string_view header_type =
+    //     processing_trailers_ ? Http1HeaderTypes::get().Trailers :
+    //     Http1HeaderTypes::get().Headers;
+    return HPE_HEADER_OVERFLOW;
   }
 
   header_parsing_state_ = HeaderParsingState::Field;
   ASSERT(current_header_field_.empty());
   ASSERT(current_header_value_.empty());
+  return 0;
 }
 
 bool ConnectionImpl::maybeDirectDispatch(Buffer::Instance& data) {
@@ -463,11 +463,11 @@ bool ConnectionImpl::maybeDirectDispatch(Buffer::Instance& data) {
   return true;
 }
 
-void ConnectionImpl::dispatch(Buffer::Instance& data) {
+ABSL_MUST_USE_RESULT ProtobufUtil::Status ConnectionImpl::dispatch(Buffer::Instance& data) {
   ENVOY_CONN_LOG(trace, "parsing {} bytes", connection_, data.length());
 
   if (maybeDirectDispatch(data)) {
-    return;
+    return ProtobufUtil::Status();
   }
 
   // Always unpause before dispatch.
@@ -479,10 +479,18 @@ void ConnectionImpl::dispatch(Buffer::Instance& data) {
     absl::FixedArray<Buffer::RawSlice> slices(num_slices);
     data.getRawSlices(slices.begin(), num_slices);
     for (const Buffer::RawSlice& slice : slices) {
-      total_parsed += dispatchSlice(static_cast<const char*>(slice.mem_), slice.len_);
+      auto result = dispatchSlice(static_cast<const char*>(slice.mem_), slice.len_);
+      if (result.ok()) {
+        total_parsed += result.ValueOrDie();
+      } else {
+        return result.status();
+      }
     }
   } else {
-    dispatchSlice(nullptr, 0);
+    auto result = dispatchSlice(nullptr, 0);
+    if (!result.ok()) {
+      return result.status();
+    }
   }
 
   ENVOY_CONN_LOG(trace, "parsed {} bytes", connection_, total_parsed);
@@ -491,35 +499,41 @@ void ConnectionImpl::dispatch(Buffer::Instance& data) {
   // If an upgrade has been handled and there is body data or early upgrade
   // payload to send on, send it on.
   maybeDirectDispatch(data);
+  return ProtobufUtil::Status();
 }
 
-size_t ConnectionImpl::dispatchSlice(const char* slice, size_t len) {
+ProtobufUtil::StatusOr<ssize_t> ConnectionImpl::dispatchSlice(const char* slice, size_t len) {
   ssize_t rc = http_parser_execute(&parser_, &settings_, slice, len);
   if (HTTP_PARSER_ERRNO(&parser_) != HPE_OK && HTTP_PARSER_ERRNO(&parser_) != HPE_PAUSED) {
     sendProtocolError(Http1ResponseCodeDetails::get().HttpCodecError);
-    throw CodecProtocolException("http/1.1 protocol error: " +
-                                 std::string(http_errno_name(HTTP_PARSER_ERRNO(&parser_))));
+    return ProtobufUtil::Status(ProtobufUtil::error::Code::UNKNOWN,
+                                "http/1.1 protocol error: " +
+                                    std::string(http_errno_name(HTTP_PARSER_ERRNO(&parser_))));
   }
 
   return rc;
 }
 
-void ConnectionImpl::onHeaderField(const char* data, size_t length) {
+int ConnectionImpl::onHeaderField(const char* data, size_t length) {
   // We previously already finished up the headers, these headers are
   // now trailers.
   if (header_parsing_state_ == HeaderParsingState::Done) {
     if (!enable_trailers_) {
       // Ignore trailers.
-      return;
+      return 0;
     }
     processing_trailers_ = true;
     header_parsing_state_ = HeaderParsingState::Field;
   }
   if (header_parsing_state_ == HeaderParsingState::Value) {
-    completeLastHeader();
+    auto status = completeLastHeader();
+    if (status != 0) {
+      return status;
+    }
   }
 
   current_header_field_.append(data, length);
+  return 0;
 }
 
 void ConnectionImpl::onHeaderValue(const char* data, size_t length) {
@@ -568,7 +582,10 @@ void ConnectionImpl::onHeaderValue(const char* data, size_t length) {
 int ConnectionImpl::onHeadersCompleteBase() {
   ASSERT(!processing_trailers_);
   ENVOY_CONN_LOG(trace, "onHeadersCompleteBase", connection_);
-  completeLastHeader();
+  auto status = completeLastHeader();
+  if (status != 0) {
+    return status;
+  }
 
   if (!(parser_.http_major == 1 && parser_.http_minor == 1)) {
     // This is not necessarily true, but it's good enough since higher layers only care if this is
@@ -624,7 +641,7 @@ int ConnectionImpl::onHeadersCompleteBase() {
   return handling_upgrade_ ? 2 : rc;
 }
 
-void ConnectionImpl::onMessageCompleteBase() {
+int ConnectionImpl::onMessageCompleteBase() {
   ENVOY_CONN_LOG(trace, "message complete", connection_);
 
   if (handling_upgrade_) {
@@ -633,16 +650,20 @@ void ConnectionImpl::onMessageCompleteBase() {
     ASSERT(!deferred_end_stream_headers_);
     ENVOY_CONN_LOG(trace, "Pausing parser due to upgrade.", connection_);
     http_parser_pause(&parser_, 1);
-    return;
+    return 0;
   }
 
   // If true, this indicates we were processing trailers and must
   // move the last header into current_header_map_
   if (header_parsing_state_ == HeaderParsingState::Value) {
-    completeLastHeader();
+    auto status = completeLastHeader();
+    if (status != 0) {
+      return status;
+    }
   }
 
   onMessageComplete();
+  return 0;
 }
 
 void ConnectionImpl::onMessageBeginBase() {
@@ -926,6 +947,7 @@ int ClientConnectionImpl::onHeadersComplete() {
   // with a 'Connection: close' header). In this case we just let response flush out followed
   // by the remote close.
   if (!pending_response_.has_value() && !resetStreamCalled()) {
+    ENVOY_LOG_MISC(info, "THREW PREMATURE {}", "");
     throw PrematureResponseException(static_cast<Http::Code>(parser_.status_code));
   } else if (pending_response_.has_value()) {
     auto& headers = absl::get<ResponseHeaderMapPtr>(headers_or_trailers_);

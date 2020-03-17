@@ -448,7 +448,7 @@ ConnectionImpl::ConnectionImpl(Network::Connection& connection, Stats::Scope& st
 
 ConnectionImpl::~ConnectionImpl() { nghttp2_session_del(session_); }
 
-void ConnectionImpl::dispatch(Buffer::Instance& data) {
+ProtobufUtil::Status ConnectionImpl::dispatch(Buffer::Instance& data) {
   ENVOY_CONN_LOG(trace, "dispatching {} bytes", connection_, data.length());
   uint64_t num_slices = data.getRawSlices(nullptr, 0);
   absl::FixedArray<Buffer::RawSlice> slices(num_slices);
@@ -473,6 +473,7 @@ void ConnectionImpl::dispatch(Buffer::Instance& data) {
 
   // Decoding incoming frames can generate outbound frames so flush pending.
   sendPendingFrames();
+  return ProtobufUtil::Status();
 }
 
 ConnectionImpl::StreamImpl* ConnectionImpl::getStream(int32_t stream_id) {
@@ -1301,7 +1302,7 @@ void ServerConnectionImpl::checkOutboundQueueLimits() {
   }
 }
 
-void ServerConnectionImpl::dispatch(Buffer::Instance& data) {
+ProtobufUtil::Status ServerConnectionImpl::dispatch(Buffer::Instance& data) {
   ASSERT(!dispatching_downstream_data_);
   dispatching_downstream_data_ = true;
 
@@ -1313,6 +1314,7 @@ void ServerConnectionImpl::dispatch(Buffer::Instance& data) {
   checkOutboundQueueLimits();
 
   ConnectionImpl::dispatch(data);
+  return ProtobufUtil::Status();
 }
 
 } // namespace Http2

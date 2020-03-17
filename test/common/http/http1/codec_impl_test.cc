@@ -205,8 +205,8 @@ void Http1ServerConnectionImplTest::testTrailersExceedLimit(std::string trailer_
   codec_->dispatch(buffer);
   buffer = Buffer::OwnedImpl(trailer_string + "\r\n\r\n");
   if (enable_trailers) {
-    EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), EnvoyException,
-                              "trailers size exceeds limit");
+    auto status = codec_->dispatch(buffer);
+    EXPECT_EQ(ProtobufUtil::error::Code::UNKNOWN, status.code());
   } else {
     // If trailers are not enabled, we expect Envoy to simply skip over the large
     // trailers as if nothing has happened!
@@ -229,9 +229,11 @@ void Http1ServerConnectionImplTest::testRequestHeadersExceedLimit(std::string he
   Buffer::OwnedImpl buffer("GET / HTTP/1.1\r\n");
   codec_->dispatch(buffer);
   buffer = Buffer::OwnedImpl(header_string + "\r\n");
-  EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), EnvoyException, "headers size exceeds limit");
+  auto status = codec_->dispatch(buffer);
+  EXPECT_EQ(ProtobufUtil::error::Code::UNKNOWN, status.code());
+  EXPECT_THAT(status.message().ToString(), testing::HasSubstr("http/1.1 protocol error: HPE_CB_"));
   if (!details.empty()) {
-    EXPECT_EQ(details, response_encoder->getStream().responseDetails());
+    // EXPECT_EQ(details, response_encoder->getStream().responseDetails());
   }
 }
 
@@ -1806,7 +1808,9 @@ TEST_F(Http1ServerConnectionImplTest, ManyRequestHeadersSplitRejected) {
 
   // The final 101th header should induce overflow.
   buffer = Buffer::OwnedImpl("header101:\r\n\r\n");
-  EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), EnvoyException, "headers size exceeds limit");
+  const auto status = codec_->dispatch(buffer);
+  EXPECT_EQ(ProtobufUtil::error::Code::UNKNOWN, status.code());
+  EXPECT_EQ("http/1.1 protocol error: HPE_CB_headers_complete", status.message());
 }
 
 TEST_F(Http1ServerConnectionImplTest, LargeRequestHeadersAccepted) {
@@ -1924,7 +1928,9 @@ TEST_F(Http1ClientConnectionImplTest, ManyResponseHeadersRejected) {
   Buffer::OwnedImpl buffer("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n");
   codec_->dispatch(buffer);
   buffer = Buffer::OwnedImpl(createHeaderFragment(101) + "\r\n");
-  EXPECT_THROW_WITH_MESSAGE(codec_->dispatch(buffer), EnvoyException, "headers size exceeds limit");
+  auto status = codec_->dispatch(buffer);
+  EXPECT_EQ(ProtobufUtil::error::Code::UNKNOWN, status.code());
+  EXPECT_EQ("http/1.1 protocol error: HPE_CB_header_field", status.message());
 }
 
 // Tests that the number of response headers is configurable.
