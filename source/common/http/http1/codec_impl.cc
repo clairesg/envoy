@@ -377,7 +377,11 @@ http_parser_settings ConnectionImpl::settings_{
     },
     nullptr, // on_status
     [](http_parser* parser, const char* at, size_t length) -> int {
-      return static_cast<ConnectionImpl*>(parser->data)->onHeaderField(at, length);
+      auto rc = static_cast<ConnectionImpl*>(parser->data)->onHeaderField(at, length);
+      if (rc == 12) {
+        return 12;
+      }
+      return 0;
     },
     [](http_parser* parser, const char* at, size_t length) -> int {
       static_cast<ConnectionImpl*>(parser->data)->onHeaderValue(at, length);
@@ -435,6 +439,7 @@ int ConnectionImpl::completeLastHeader() {
     // const absl::string_view header_type =
     //     processing_trailers_ ? Http1HeaderTypes::get().Trailers :
     //     Http1HeaderTypes::get().Headers;
+    ENVOY_LOG_MISC(info, "TOO MANY HEADERS {}", HPE_HEADER_OVERFLOW);
     return HPE_HEADER_OVERFLOW;
   }
 
@@ -506,9 +511,13 @@ ProtobufUtil::StatusOr<ssize_t> ConnectionImpl::dispatchSlice(const char* slice,
   ssize_t rc = http_parser_execute(&parser_, &settings_, slice, len);
   if (HTTP_PARSER_ERRNO(&parser_) != HPE_OK && HTTP_PARSER_ERRNO(&parser_) != HPE_PAUSED) {
     sendProtocolError(Http1ResponseCodeDetails::get().HttpCodecError);
-    return ProtobufUtil::Status(ProtobufUtil::error::Code::UNKNOWN,
-                                "http/1.1 protocol error: " +
-                                    std::string(http_errno_name(HTTP_PARSER_ERRNO(&parser_))));
+    if (HTTP_PARSER_ERRNO(&parser_) == HPE_HEADER_OVERFLOW) {
+      return ProtobufUtil::Status(ProtobufUtil::error::Code::UNKNOWN,
+                                  "http/1.1 protocol error: " +
+                                  std::string(http_errno_name(HTTP_PARSER_ERRNO(&parser_))));
+    }
+    throw CodecProtocolException("http/1.1 protocol error: " +
+                                 std::string(http_errno_name(HTTP_PARSER_ERRNO(&parser_))));
   }
 
   return rc;
