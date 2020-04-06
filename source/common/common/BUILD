@@ -419,3 +419,19 @@ envoy_cc_library(
         "//source/common/common:utility_lib",
     ],
 )
+
+envoy_cc_library(
+    name = "statusor",
+    srcs = [
+        "statusor.cc",
+    ],
+    hdrs = [
+        "statusor.h",
+        "statusor_internals.h",
+    ],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/meta:type_traits",
+        "@com_google_absl//absl/status",
+    ],
+)
