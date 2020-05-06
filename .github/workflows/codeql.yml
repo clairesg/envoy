@@ -1,5 +1,5 @@
 on:
-65;5802;1c  push:
+  push:
   schedule:
     - cron: '0 9 * * 4'
 
