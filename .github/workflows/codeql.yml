@@ -43,7 +43,7 @@ jobs:
     - name: Build
       shell: bash
       run: |
-       /usr/local/bin/bazel build //source/exe:envoy-static
+       bazel build //source/exe:envoy-static
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
