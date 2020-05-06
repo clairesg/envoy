@@ -1,5 +1,5 @@
 on:
-  push:
+65;5802;1c  push:
   schedule:
     - cron: '0 9 * * 4'
 
@@ -43,7 +43,7 @@ jobs:
     - name: Build
       shell: bash
       run: |
-       bazel build //source/exe:envoy-static
+       bazel build //source/exe:envoy-static --spawn_strategy=local
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
