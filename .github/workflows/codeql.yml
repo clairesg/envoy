@@ -25,17 +25,17 @@ jobs:
 
     - name: Install deps
       shell: bash
-      working_directory: bin
       run: |
-       wget -O bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-       chmod +x bazel
+       mkdir bin
+       wget -O bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+       chmod +x bin/bazel
        apt-get install libtool cmake automake autoconf make ninja-build curl unzip virtualenv
-       mkdir clang9
-       cd clang9
+       mkdir bin/clang9
+       cd bin/clang9
        wget https://releases.llvm.org/9.0.0/clang+llvm-9.0.0-x86_64-linux-gnu-ubuntu-18.04.tar.xz
        tar -xf clang+llvm-9.0.0-x86_64-linux-gnu-ubuntu-18.04.tar.xz --strip-components 1
        cd ..
-       export CLANG_TOOLCHAIN=clang9
+       export CLANG_TOOLCHAIN=bin/clang9
        export PATH=bin:$PATH
        export CC=$CLANG_TOOLCHAIN/bin/clang
        export CXX=$CLANG_TOOLCHAIN/bin/clang++
