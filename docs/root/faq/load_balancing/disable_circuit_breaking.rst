@@ -1,5 +1,3 @@
-.. _faq_disable_circuit_breaking:
-
 Is there a way to disable circuit breaking?
 ===========================================
 

@@ -1,5 +1,3 @@
-.. _faq_how_fast_is_envoy:
-
 How fast is Envoy?
 ==================
 
