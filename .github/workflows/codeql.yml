@@ -43,6 +43,7 @@ jobs:
     - name: Build
       shell: bash
       run: |
+       /bin/bash --version
        bazel shutdown
        bazel build -c fastbuild --spawn_strategy=local --discard_analysis_cache --nouse_action_cache //source/exe:envoy-static --verbose_failures
 
