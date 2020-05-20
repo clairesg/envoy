@@ -43,8 +43,8 @@ jobs:
     - name: Build
       shell: bash
       run: |
-       shopt -s extglob
-       bazel build //source/exe:envoy-static --spawn_strategy=local
+       bazel shutdown
+       bazel build -c fastbuild --spawn_strategy=local --discard_analysis_cache --nouse_action_cache //source/exe:envoy-static
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
