@@ -186,7 +186,7 @@ protected:
         std::make_unique<NiceMock<Runtime::MockRandomGenerator>>(), *thread_local_,
         Thread::threadFactoryForTest(), Filesystem::fileSystemForTest(),
         std::move(process_context_));
-    EXPECT_TRUE(server_->api().fileSystem().fileExists("/dev/null"));
+    EXPECT_TRUE(server_->api().fileSystem().fileExists(TestEnvironment::nullDevicePath()));
   }
 
   void initializeWithHealthCheckParams(const std::string& bootstrap_path, const double timeout,
@@ -205,7 +205,7 @@ protected:
         std::make_unique<NiceMock<Runtime::MockRandomGenerator>>(), *thread_local_,
         Thread::threadFactoryForTest(), Filesystem::fileSystemForTest(), nullptr);
 
-    EXPECT_TRUE(server_->api().fileSystem().fileExists("/dev/null"));
+    EXPECT_TRUE(server_->api().fileSystem().fileExists(TestEnvironment::nullDevicePath()));
   }
 
   Thread::ThreadPtr startTestServer(const std::string& bootstrap_path,
@@ -582,6 +582,7 @@ TEST_P(ServerInstanceImplTest, ValidationRejectDynamic) {
   options_.service_cluster_name_ = "some_cluster_name";
   options_.service_node_name_ = "some_node_name";
   options_.reject_unknown_dynamic_fields_ = true;
+  options_.ignore_unknown_dynamic_fields_ = true; // reject takes precedence over ignore
   EXPECT_NO_THROW(initialize("test/server/test_data/server/empty_bootstrap.yaml"));
   EXPECT_THAT_THROWS_MESSAGE(
       server_->messageValidationContext().staticValidationVisitor().onUnknownField("foo"),
@@ -729,7 +730,6 @@ TEST_P(ServerInstanceImplTest, BootstrapRuntime) {
   EXPECT_EQ("bar", server_->runtime().snapshot().get("foo").value().get());
   // This should access via the override/some_service overlay.
   EXPECT_EQ("fozz", server_->runtime().snapshot().get("fizz").value().get());
-  EXPECT_EQ("foobar", server_->runtime().snapshot().getLayers()[3]->name());
 }
 
 // Validate that a runtime absent an admin layer will fail mutating operations
@@ -746,6 +746,22 @@ TEST_P(ServerInstanceImplTest, RuntimeNoAdminLayer) {
       Http::Code::ServiceUnavailable,
       server_->admin().request("/runtime_modify?foo=bar", "POST", response_headers, response_body));
   EXPECT_EQ("No admin layer specified", response_body);
+}
+
+// Verify that bootstrap fails if RTDS is configured through an EDS cluster
+TEST_P(ServerInstanceImplTest, BootstrapRtdsThroughEdsFails) {
+  options_.service_cluster_name_ = "some_service";
+  options_.service_node_name_ = "some_node_name";
+  EXPECT_THROW_WITH_REGEX(initialize("test/server/test_data/server/runtime_bootstrap_eds.yaml"),
+                          EnvoyException, "must have a statically defined non-EDS cluster");
+}
+
+// Verify that bootstrap fails if RTDS is configured through an ADS using EDS cluster
+TEST_P(ServerInstanceImplTest, BootstrapRtdsThroughAdsViaEdsFails) {
+  options_.service_cluster_name_ = "some_service";
+  options_.service_node_name_ = "some_node_name";
+  EXPECT_THROW_WITH_REGEX(initialize("test/server/test_data/server/runtime_bootstrap_ads_eds.yaml"),
+                          EnvoyException, "Unknown gRPC client cluster");
 }
 
 TEST_P(ServerInstanceImplTest, DEPRECATED_FEATURE_TEST(InvalidLegacyBootstrapRuntime)) {
@@ -787,6 +803,14 @@ TEST_P(ServerInstanceImplTest, InvalidLayeredBootstrapNoLayerSpecifier) {
 TEST_P(ServerInstanceImplTest, BootstrapClusterManagerInitializationFail) {
   EXPECT_THROW_WITH_MESSAGE(initialize("test/server/test_data/server/cluster_dupe_bootstrap.yaml"),
                             EnvoyException, "cluster manager: duplicate cluster 'service_google'");
+}
+
+// Regression tests for SdsApi throwing exceptions in initialize().
+TEST_P(ServerInstanceImplTest, BadSdsConfigSource) {
+  EXPECT_THROW_WITH_MESSAGE(
+      initialize("test/server/test_data/server/bad_sds_config_source.yaml"), EnvoyException,
+      "envoy.config.core.v3.ApiConfigSource must have a statically defined non-EDS cluster: "
+      "'sds-grpc' does not exist, was added via api, or is an EDS cluster");
 }
 
 // Test for protoc-gen-validate constraint on invalid timeout entry of a health check config entry.
@@ -844,9 +868,10 @@ namespace {
 void bindAndListenTcpSocket(const Network::Address::InstanceConstSharedPtr& address,
                             const Network::Socket::OptionsSharedPtr& options) {
   auto socket = std::make_unique<Network::TcpListenSocket>(address, options, true);
+  auto& os_sys_calls = Api::OsSysCallsSingleton::get();
   // Some kernels erroneously allow `bind` without SO_REUSEPORT for addresses
   // with some other socket already listening on it, see #7636.
-  if (::listen(socket->ioHandle().fd(), 1) != 0) {
+  if (SOCKET_FAILURE(os_sys_calls.listen(socket->ioHandle().fd(), 1).rc_)) {
     // Mimic bind exception for the test simplicity.
     throw Network::SocketBindException(fmt::format("cannot listen: {}", strerror(errno)), errno);
   }
