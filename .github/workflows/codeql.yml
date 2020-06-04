@@ -26,6 +26,7 @@ jobs:
     - name: Install deps
       shell: bash
       run: |
+       ls
        mkdir bin
        wget -O bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
        chmod +x bin/bazel
@@ -39,6 +40,8 @@ jobs:
     - name: Build
       shell: bash
       run: |
+       ls
+       ls bin
        bazel --version
        bazel/setup_clang.sh bin/clang9
        clang --version
