@@ -41,8 +41,12 @@ jobs:
       shell: bash
       run: |
        ls
+       echo $PATH
        ls bin
+       export PATH=bin:$PATH
+       echo $PATH
        bazel --version
+       clang --version
        bazel/setup_clang.sh bin/clang9
        clang --version
        cat clang.bazelrc
