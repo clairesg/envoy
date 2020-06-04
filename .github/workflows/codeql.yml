@@ -43,7 +43,7 @@ jobs:
        ls
        echo $PATH
        ls bin
-       export PATH=bin:$PATH
+       export PATH=bin/clang9/bin:$PATH
        echo $PATH
        bazel --version
        clang --version
@@ -51,7 +51,7 @@ jobs:
        clang --version
        cat clang.bazelrc
        bazel shutdown
-       bazel build -c fastbuild --spawn_strategy=local --discard_analysis_cache --nouse_action_cache --config clang --config libc++ //source/common/common:byte_order_lib --verbose_failures
+       bazel build -c fastbuild --spawn_strategy=local --discard_analysis_cache --nouse_action_cache --config clang --config libc++ //source/exe:envoy-static --verbose_failures
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
