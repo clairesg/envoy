@@ -41,6 +41,7 @@ jobs:
       run: |
        bazel --version
        bazel/setup_clang.sh bin/clang9
+       clang --version
        cat clang.bazelrc
        bazel shutdown
        bazel build -c fastbuild --spawn_strategy=local --discard_analysis_cache --nouse_action_cache --config clang --config libc++ //source/exe:envoy-static --verbose_failures
