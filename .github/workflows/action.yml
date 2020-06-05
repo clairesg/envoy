@@ -4,11 +4,6 @@ on:
     - cron: '0 9 * * 4'
 
 jobs:
-  CodeQL-Build:
-    strategy:
-      fail-fast: false
-
-    # CodeQL runs on ubuntu-latest and windows-latest
     runs-on: ubuntu-latest
 
     steps:
