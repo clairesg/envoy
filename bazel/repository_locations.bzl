@@ -359,10 +359,10 @@ DEPENDENCY_REPOSITORIES = dict(
         use_category = ["build"],
     ),
     rules_foreign_cc = dict(
-        sha256 = "655c02d272e95af0ff4afe805ffa3768b04d14fb50e92d5e25e9f12f5f15a681",
-        strip_prefix = "rules_foreign_cc-d838bc55067fc473fa67ec619be1478e45b96e2d",
+        sha256 = "7ca49ac5b0bc8f5a2c9a7e87b7f86aca604bda197259c9b96f8b7f0a4f38b57b",
+        strip_prefix = "rules_foreign_cc-f54b7ae56dcf1b81bcafed3a08d58fc08ac095a7",
         # 2020-06-09
-        urls = ["https://github.com/bazelbuild/rules_foreign_cc/archive/d838bc55067fc473fa67ec619be1478e45b96e2d.tar.gz"],
+        urls = ["https://github.com/bazelbuild/rules_foreign_cc/archive/f54b7ae56dcf1b81bcafed3a08d58fc08ac095a7.tar.gz"],
         use_category = ["build"],
     ),
     rules_python = dict(
