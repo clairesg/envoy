@@ -425,6 +425,7 @@ envoy_cc_test(
     tags = ["fails_on_windows"],
     deps = [
         ":http_integration_lib",
+        "//source/common/api:api_lib",
         "@envoy_api//envoy/extensions/filters/http/router/v3:pkg_cc_proto",
         "@envoy_api//envoy/extensions/filters/network/http_connection_manager/v3:pkg_cc_proto",
     ],
