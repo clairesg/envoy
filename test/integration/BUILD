@@ -861,6 +861,7 @@ envoy_cc_test(
         "//test/integration/filters:encoder_decoder_buffer_filter_lib",
         "//test/integration/filters:process_context_lib",
         "//test/integration/filters:stop_iteration_and_continue",
+        "//test/integration/filters:test_socket_interface_lib",
         "//test/mocks/http:http_mocks",
         "//test/test_common:utility_lib",
         "@envoy_api//envoy/config/bootstrap/v3:pkg_cc_proto",

@@ -14,6 +14,7 @@
 
 #include "test/integration/autonomous_upstream.h"
 #include "test/integration/filters/process_context_filter.h"
+#include "test/integration/filters/test_socket_interface.h"
 #include "test/integration/utility.h"
 #include "test/mocks/http/mocks.h"
 #include "test/test_common/network_utility.h"
@@ -357,6 +358,117 @@ TEST_P(IntegrationTest, EnvoyProxying100ContinueWithDecodeDataPause) {
   )EOF");
   testEnvoyProxying1xx(true);
 }
+
+class IntegrationWithTestSocketTest : public IntegrationTest {
+public:
+  IntegrationWithTestSocketTest() : IntegrationTest() {
+    Envoy::Network::SocketInterfaceSingleton::clear();
+    test_socket_interface_loader_ = std::make_unique<Envoy::Network::SocketInterfaceLoader>(
+        std::make_unique<Envoy::Network::TestSocketInterface>(
+            [writev_matcher = writev_matcher_](
+                Envoy::Network::TestIoSocketHandle* io_handle, const Buffer::RawSlice*,
+                uint64_t) -> absl::optional<Api::IoCallUint64Result> {
+              if (writev_matcher->shouldReturnEgain(io_handle->localAddress()->ip()->port())) {
+                ENVOY_LOG_MISC(info, "RETURNING EGAIN");
+                return Api::IoCallUint64Result(
+                    0, Api::IoErrorPtr(Network::IoSocketError::getIoSocketEagainInstance(),
+                                       Network::IoSocketError::deleteIoError));
+              }
+              return absl::nullopt;
+            }));
+  }
+  ~IntegrationWithTestSocketTest() override {
+    test_socket_interface_loader_.reset();
+    Envoy::Network::SocketInterfaceSingleton::initialize(previous_socket_interface_);
+  }
+
+ protected:
+    // Object of this class hold the state determining the IoHandle which
+  // should return EAGAIN from the `writev` call.
+  struct IoHandleMatcher {
+    bool shouldReturnEgain(uint32_t port) const {
+      absl::ReaderMutexLock lock(&mutex_);
+      return port == port_ && writev_returns_egain_;
+    }
+
+    void setSourcePort(uint32_t port) {
+      absl::WriterMutexLock lock(&mutex_);
+      port_ = port;
+    }
+
+    void setWritevReturnsEgain() {
+      absl::WriterMutexLock lock(&mutex_);
+      writev_returns_egain_ = true;
+    }
+
+    void clearWritevReturnEgain() {
+      absl::WriterMutexLock lock(&mutex_);
+      writev_returns_egain_ = false;
+    }
+
+  private:
+    mutable absl::Mutex mutex_;
+    uint32_t port_ ABSL_GUARDED_BY(mutex_) = 0;
+    bool writev_returns_egain_ ABSL_GUARDED_BY(mutex_) = false;
+  };
+
+  Envoy::Network::SocketInterface* const previous_socket_interface_{
+    Envoy::Network::SocketInterfaceSingleton::getExisting()};
+  std::shared_ptr<IoHandleMatcher> writev_matcher_{std::make_shared<IoHandleMatcher>()};
+  std::unique_ptr<Envoy::Network::SocketInterfaceLoader> test_socket_interface_loader_;
+};
+
+TEST_P(IntegrationWithTestSocketTest, EnvoyProxying100ContinueWithBackpressure) {
+  config_helper_.addConfigModifier(
+      [&](envoy::extensions::filters::network::http_connection_manager::v3::HttpConnectionManager&
+              hcm) -> void { hcm.set_proxy_100_continue(true); });
+  initialize();
+
+  codec_client_ = makeHttpConnection(lookupPort("http"));
+  auto encoder_decoder =
+      codec_client_->startRequest(Http::TestRequestHeaderMapImpl{{":method", "GET"},
+                                                                 {":path", "/dynamo/url"},
+                                                                 {":scheme", "http"},
+                                                                 {":authority", "host"},
+                                                                 {"expect", "100-continue"}});
+  request_encoder_ = &encoder_decoder.first;
+  auto response = std::move(encoder_decoder.second);
+
+  // Wait for the request headers to be received upstream.
+  ASSERT_TRUE(fake_upstreams_[0]->waitForHttpConnection(*dispatcher_, fake_upstream_connection_));
+  ASSERT_TRUE(fake_upstream_connection_->waitForNewStream(*dispatcher_, upstream_request_));
+
+  // This prevents Envoy from closing client streams by push back on writing by upstream server.
+  writev_matcher_->setSourcePort(fake_upstreams_[0]->localAddress()->ip()->port());
+  writev_matcher_->setWritevReturnsEgain();
+
+  // Send 100 continue headers but do not expect the response to receive it.
+  upstream_request_->encode100ContinueHeaders(
+      Http::TestResponseHeaderMapImpl{{":status", "100"}});
+  // response->waitForContinueHeaders();
+  // Now send the rest of the response.
+  upstream_request_->encodeHeaders(default_response_headers_, true);
+
+  // Send all of the request data and wait for it to be received upstream.
+  codec_client_->sendData(*request_encoder_, 10, true);
+
+  // Now clear.
+  writev_matcher_->clearWritevReturnEgain();
+
+  response->waitForContinueHeaders();
+
+
+  // response->waitForEndStream();
+  // EXPECT_TRUE(response->complete());
+
+  // ASSERT(response->continueHeaders() != nullptr);
+  // EXPECT_EQ("100", response->continueHeaders()->getStatusValue());
+  // EXPECT_EQ("200", response->headers().getStatusValue());
+}
+
+INSTANTIATE_TEST_SUITE_P(IpVersions, IntegrationWithTestSocketTest,
+                         testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
+                         TestUtility::ipTestParamsToString);
 
 // This is a regression for https://github.com/envoyproxy/envoy/issues/2715 and validates that a
 // pending request is not sent on a connection that has been half-closed.
